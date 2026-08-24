@@ -37,26 +37,12 @@ import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { ANGLE_LABELS, ANGLES, ENVIRONMENT_LABELS, ENVIRONMENTS } from "@/lib/constants/poses";
 import type { Database } from "@/lib/types/database";
-import type { PoseAngle, PoseEnvironment, WardrobeCategory } from "@/lib/types";
+import type { PoseAngle, WardrobeCategory } from "@/lib/types";
 
 const ASSETS_DIR = join(process.cwd(), "seed-assets", "reference-library");
 
-const ANGLE_LABELS: Record<PoseAngle, string> = {
-  full_body: "Plein pied",
-  mid_shot: "Mi-corps",
-  close_up: "Gros plan",
-};
-
-const ENVIRONMENT_LABELS: Record<PoseEnvironment, string> = {
-  urban: "Rue",
-  studio: "Studio",
-  outdoor: "Extérieur",
-  cafe: "Café",
-};
-
-const ANGLES: PoseAngle[] = ["full_body", "mid_shot", "close_up"];
-const ENVIRONMENTS: PoseEnvironment[] = ["urban", "studio", "outdoor", "cafe"];
 const MIME_BY_EXT: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
