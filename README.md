@@ -32,24 +32,29 @@ sous 3 angles différents, en suivant des photos de référence de pose réelles
 
 ## Ce qui reste à faire avant de lancer l'app
 
-Le code est complet et compile (`npm run build` passe), mais rien n'est branché à
-de vrais services pour l'instant :
+### 1. Supabase — ✅ fait
 
-### 1. Créer le projet Supabase
+Le projet Supabase **"DressAI"** (`anavmdbydqvvkwetrxrz`, région eu-west-1) a été
+créé et configuré directement via le connecteur MCP Supabase :
 
-1. Crée un projet sur [supabase.com](https://supabase.com).
-2. Dans **SQL Editor**, exécute dans l'ordre les fichiers de `supabase/migrations/` :
-   - `0001_schema.sql` — tables, RLS, trigger `handle_new_user`
-   - `0002_storage.sql` — 3 buckets + policies storage
-   - `0003_seed_pose_categories.sql` — seed des 6 catégories
-3. Récupère `Project URL`, `anon public key` et `service_role key` dans
-   **Project Settings > API**, et remplis `.env.local` (voir `.env.example`).
-4. (Optionnel mais recommandé) régénère les types TypeScript depuis le vrai schéma :
-   ```bash
-   npx supabase gen types typescript --project-id <project-id> > lib/types/database.ts
-   ```
-   `lib/types/database.ts` est actuellement écrit à la main pour que le projet
-   compile sans accès réseau — il correspond exactement au schéma SQL ci-dessus.
+- Les 5 migrations de `supabase/migrations/` sont appliquées (schéma, RLS, trigger
+  `handle_new_user`, 3 buckets + policies storage, seed des 6 catégories de pose).
+- L'audit de sécurité (`get_advisors`) est passé de 5 alertes à 0 — RLS a été
+  activée sur `pose_categories`/`pose_references`/`pose_sub_references` (lecture
+  publique uniquement, écriture réservée au `service_role`), et le privilège
+  `EXECUTE` sur `handle_new_user()` a été retiré du rôle `PUBLIC`.
+- `lib/types/database.ts` est généré depuis le vrai schéma (via
+  `generate_typescript_types`), avec les unions strictes (`WardrobeCategory`,
+  `TryOnStatus`, ...) reportées à la main par-dessus pour un typage plus précis
+  que ce que le générateur produit seul.
+- `.env.local` est rempli avec `NEXT_PUBLIC_SUPABASE_URL` et
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+
+**Il ne manque qu'une chose** : `SUPABASE_SERVICE_ROLE_KEY` dans `.env.local`.
+Cette clé secrète n'est volontairement pas exposée par le connecteur MCP (aucun
+outil ne la retourne) — récupère-la toi-même dans
+[Project Settings > API](https://supabase.com/dashboard/project/anavmdbydqvvkwetrxrz/settings/api)
+(section **service_role**, "secret").
 
 ### 2. Clé API Gemini
 
