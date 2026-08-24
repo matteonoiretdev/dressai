@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { generateStructuredJson, PROMPTS } from "@/lib/gemini";
+import { generateStructuredJson, isolateProductGarment, PROMPTS } from "@/lib/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { resolveAssetUrl, uploadToUserAssets } from "@/lib/supabase/storage";
 import { extensionForMimeType, fetchImageAsBase64, fileToBase64 } from "@/lib/utils/image";
@@ -69,8 +69,17 @@ export async function POST(request: Request) {
       throw new Error(`Catégorie inattendue renvoyée par Gemini : ${classification.category}`);
     }
 
-    const path = `${user.id}/products/${Date.now()}.${extensionForMimeType(imagePart.mimeType)}`;
-    await uploadToUserAssets(supabase, path, imagePart);
+    // Isole le produit (plutôt que d'utiliser la photo brute, qui montre souvent
+    // une tenue complète ou un mannequin) — c'est cette version isolée qui sert
+    // ensuite de référence "produit" pour la génération try-on.
+    const isolated = await isolateProductGarment(
+      imagePart,
+      classification.category,
+      classification.name
+    );
+
+    const path = `${user.id}/products/${Date.now()}.${extensionForMimeType(isolated.image.mimeType)}`;
+    await uploadToUserAssets(supabase, path, isolated.image);
     const previewUrl = await resolveAssetUrl(supabase, path);
 
     const extracted: ExtractedProduct = {

@@ -1,22 +1,56 @@
 import { NonRetriableError } from "inngest";
 
+import { generateTryOnImage, type TryOnReferenceImage } from "@/lib/gemini";
 import { inngest, type TryOnGenerateEventData } from "@/lib/inngest/client";
-import { generateImage, PROMPTS } from "@/lib/gemini";
 import { createServiceClient } from "@/lib/supabase/service";
 import { resolveAssetUrl, uploadToGeneratedImages } from "@/lib/supabase/storage";
-import { extensionForMimeType, fetchImageAsBase64, type ImagePart } from "@/lib/utils/image";
+import { extensionForMimeType, fetchImageAsBase64 } from "@/lib/utils/image";
 import type { PoseAngle } from "@/lib/types";
 
 const ANGLES: PoseAngle[] = ["full_body", "mid_shot", "close_up"];
 
+interface Context {
+  neutralUrl: string;
+  productUrl: string;
+  wardrobeUrl: string | null;
+  subRefs: Record<PoseAngle, string>;
+}
+
+/**
+ * Recharge les références "de base" (identité, produit, pairing garde-robe)
+ * depuis leurs URLs déjà résolues. Refait à chaque tour plutôt que mise en
+ * cache dans l'état d'un step Inngest (pour éviter de faire transiter des
+ * gros payloads base64 dans le state du job) — coût réseau négligeable, ce
+ * sont de petites images déjà compressées.
+ */
+async function loadBaseReferences(context: Context): Promise<TryOnReferenceImage[]> {
+  const [person, garment, pairedGarment] = await Promise.all([
+    fetchImageAsBase64(context.neutralUrl),
+    fetchImageAsBase64(context.productUrl),
+    context.wardrobeUrl ? fetchImageAsBase64(context.wardrobeUrl) : Promise.resolve(null),
+  ]);
+
+  const references: TryOnReferenceImage[] = [
+    { role: "person", image: person },
+    { role: "garment", image: garment },
+  ];
+  if (pairedGarment) {
+    references.push({ role: "pairedGarment", image: pairedGarment });
+  }
+  return references;
+}
+
 /**
  * Job de génération d'un try-on : 3 tours Gemini (plein pied, mi-corps, gros plan).
  *
- * Chaque tour est un step.run indépendant : Gemini est repris de zéro à chaque
- * angle (pas de session de chat persistée entre steps, incompatible avec le
- * modèle d'exécution durable d'Inngest), la cohérence identité/tenue/environnement
- * est maintenue en réinjectant l'image générée au tour précédent comme référence
- * visuelle du tour suivant (voir PROMPTS.tryOnTurn2/3 dans lib/gemini.ts).
+ * Chaque tour est un step.run indépendant (pas de session de chat persistée
+ * entre steps, incompatible avec le modèle d'exécution durable d'Inngest).
+ * L'identité, le produit et le pairing garde-robe sont réinjectés en
+ * référence à CHAQUE tour (pas seulement le premier) pour éviter que ces
+ * éléments dérivent au fil des angles — en ne les fournissant qu'au premier
+ * tour, les tours suivants n'avaient que l'image générée précédente comme
+ * seule ancre, qui pouvait elle-même s'être écartée du produit réel (voir
+ * lib/gemini.ts pour le détail du système de références labellisées).
  */
 export const generateTryOn = inngest.createFunction(
   {
@@ -44,7 +78,7 @@ export const generateTryOn = inngest.createFunction(
       if (error) throw error;
     });
 
-    const context = await step.run("load-context", async () => {
+    const context: Context = await step.run("load-context", async () => {
       const { data: session, error: sessionError } = await supabase
         .from("try_on_sessions")
         .select("*")
@@ -113,17 +147,12 @@ export const generateTryOn = inngest.createFunction(
     });
 
     const fullBody = await step.run("generate-full-body", async () => {
-      const [neutral, product, wardrobe, poseRef] = await Promise.all([
-        fetchImageAsBase64(context.neutralUrl),
-        fetchImageAsBase64(context.productUrl),
-        context.wardrobeUrl ? fetchImageAsBase64(context.wardrobeUrl) : Promise.resolve(null),
+      const [base, poseRef] = await Promise.all([
+        loadBaseReferences(context),
         fetchImageAsBase64(context.subRefs.full_body),
       ]);
 
-      const images = [neutral, product, wardrobe, poseRef].filter(
-        (img): img is ImagePart => img !== null
-      );
-      const result = await generateImage({ images, prompt: PROMPTS.tryOnTurn1 });
+      const result = await generateTryOnImage([...base, { role: "poseRef", image: poseRef }]);
 
       const path = `${sessionId}/full_body.${extensionForMimeType(result.image.mimeType)}`;
       const url = await uploadToGeneratedImages(supabase, path, result.image);
@@ -140,14 +169,17 @@ export const generateTryOn = inngest.createFunction(
     });
 
     const midShot = await step.run("generate-mid-shot", async () => {
-      const [previous, poseRef] = await Promise.all([
+      const [base, previousShot, poseRef] = await Promise.all([
+        loadBaseReferences(context),
         fetchImageAsBase64(fullBody.url),
         fetchImageAsBase64(context.subRefs.mid_shot),
       ]);
-      const result = await generateImage({
-        images: [previous, poseRef],
-        prompt: PROMPTS.tryOnTurn2,
-      });
+
+      const result = await generateTryOnImage([
+        ...base,
+        { role: "previousShot", image: previousShot },
+        { role: "poseRef", image: poseRef },
+      ]);
 
       const path = `${sessionId}/mid_shot.${extensionForMimeType(result.image.mimeType)}`;
       const url = await uploadToGeneratedImages(supabase, path, result.image);
@@ -164,14 +196,17 @@ export const generateTryOn = inngest.createFunction(
     });
 
     await step.run("generate-close-up", async () => {
-      const [previous, poseRef] = await Promise.all([
+      const [base, previousShot, poseRef] = await Promise.all([
+        loadBaseReferences(context),
         fetchImageAsBase64(midShot.url),
         fetchImageAsBase64(context.subRefs.close_up),
       ]);
-      const result = await generateImage({
-        images: [previous, poseRef],
-        prompt: PROMPTS.tryOnTurn3,
-      });
+
+      const result = await generateTryOnImage([
+        ...base,
+        { role: "previousShot", image: previousShot },
+        { role: "poseRef", image: poseRef },
+      ]);
 
       const path = `${sessionId}/close_up.${extensionForMimeType(result.image.mimeType)}`;
       const url = await uploadToGeneratedImages(supabase, path, result.image);
