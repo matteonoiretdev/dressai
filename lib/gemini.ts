@@ -6,7 +6,11 @@ import type { WardrobeClassification } from "@/lib/types";
 // Modèle de génération d'images "Nano Banana". Configurable via env var au cas
 // où Google fait évoluer l'identifiant (ex: gemini-2.5-flash-image-preview).
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
-const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-2.5-flash";
+// gemini-2.5-flash n'est plus accessible aux nouvelles clés API ("This model
+// ... is no longer available to new users") — Google recommande
+// gemini-3.6-flash comme remplacement direct. Reste configurable via env var
+// si Google fait à nouveau évoluer les identifiants.
+const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL ?? "gemini-3.6-flash";
 
 let client: GoogleGenAI | null = null;
 
