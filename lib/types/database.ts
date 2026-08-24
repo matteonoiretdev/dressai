@@ -5,7 +5,7 @@
 // plutôt que `string` (le générateur ne connaît pas les CHECK constraints).
 //
 // Pour regénérer après une migration de schéma :
-//   npx supabase gen types typescript --project-id anavmdbydqvvkwetrxrz > /tmp/db.ts
+//   npx supabase gen types typescript --project-id fxcdbqmpdvrslawdrajo > /tmp/db.ts
 // puis reporter les `Relationships` à jour ici (le reste peut rester tel quel).
 import type {
   BodyType,

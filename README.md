@@ -32,29 +32,33 @@ sous 3 angles différents, en suivant des photos de référence de pose réelles
 
 ## Ce qui reste à faire avant de lancer l'app
 
-### 1. Supabase — ✅ fait
+### 1. Supabase
 
-Le projet Supabase **"DressAI"** (`anavmdbydqvvkwetrxrz`, région eu-west-1) a été
-créé et configuré directement via le connecteur MCP Supabase :
+Le projet canonique est celui **auto-provisionné par l'intégration Vercel**
+(`fxcdbqmpdvrslawdrajo`) — Vercel a déjà les bonnes env vars injectées
+automatiquement (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`), pas besoin d'y toucher.
 
-- Les 5 migrations de `supabase/migrations/` sont appliquées (schéma, RLS, trigger
-  `handle_new_user`, 3 buckets + policies storage, seed des 6 catégories de pose).
-- L'audit de sécurité (`get_advisors`) est passé de 5 alertes à 0 — RLS a été
-  activée sur `pose_categories`/`pose_references`/`pose_sub_references` (lecture
-  publique uniquement, écriture réservée au `service_role`), et le privilège
-  `EXECUTE` sur `handle_new_user()` a été retiré du rôle `PUBLIC`.
-- `lib/types/database.ts` est généré depuis le vrai schéma (via
-  `generate_typescript_types`), avec les unions strictes (`WardrobeCategory`,
-  `TryOnStatus`, ...) reportées à la main par-dessus pour un typage plus précis
-  que ce que le générateur produit seul.
-- `.env.local` est rempli avec `NEXT_PUBLIC_SUPABASE_URL` et
-  `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+> Un premier projet ("DressAI", `anavmdbydqvvkwetrxrz`) avait été créé et
+> entièrement configuré via le connecteur MCP Supabase avant qu'on réalise que
+> Vercel pointait vers un projet différent, auto-créé par son intégration
+> Supabase. On a choisi de garder celui de Vercel pour rester simple (une seule
+> source de vérité, pas de réglages Vercel à changer) plutôt que d'y rebrancher
+> Vercel.
 
-**Il ne manque qu'une chose** : `SUPABASE_SERVICE_ROLE_KEY` dans `.env.local`.
-Cette clé secrète n'est volontairement pas exposée par le connecteur MCP (aucun
-outil ne la retourne) — récupère-la toi-même dans
-[Project Settings > API](https://supabase.com/dashboard/project/anavmdbydqvvkwetrxrz/settings/api)
-(section **service_role**, "secret").
+Ce qu'il reste à faire dessus — le connecteur MCP Supabase est déconnecté dans
+la session qui a fait ce changement, donc à exécuter manuellement :
+
+1. Dans le [SQL Editor](https://supabase.com/dashboard/project/fxcdbqmpdvrslawdrajo/sql/new)
+   du projet `fxcdbqmpdvrslawdrajo`, colle et exécute le contenu concaténé des
+   5 fichiers de `supabase/migrations/` **dans l'ordre** (0001 à 0005) — schéma,
+   RLS, trigger `handle_new_user`, 3 buckets + policies storage, seed des
+   6 catégories de pose, puis les deux durcissements de sécurité post-audit.
+2. Vérifie dans **Storage** que les 3 buckets (`reference-library`,
+   `user-assets`, `generated-images`) sont bien créés.
+3. Si tu utilises Claude Code en local avec le connecteur Supabase actif,
+   demande-moi de le faire directement et de relancer l'audit `get_advisors`
+   (comme sur le premier projet) plutôt que de coller le SQL à la main.
 
 ### 2. Clé API Gemini
 
