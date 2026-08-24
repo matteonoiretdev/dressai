@@ -123,13 +123,26 @@ export async function generateImage(params: {
  * Rôles de référence pour la génération try-on. Chaque image envoyée à Gemini
  * est précédée d'un label + une instruction dédiée plutôt que désignée par sa
  * position ("image 1", "image 2"...) — plus robuste quand le nombre d'images
- * varie (pas de pairing garde-robe, pas de tour précédent sur le 1er angle),
- * et ça évite que le modèle confonde le rôle d'une image.
+ * varie (pas de pairing garde-robe), et ça évite que le modèle confonde le
+ * rôle d'une image.
  *
- * Point important : POSE_REF précise explicitement d'ignorer les vêtements
- * visibles sur la photo de référence de pose (des mannequins stock) — sans
- * ça, Gemini a tendance à faire fuiter leurs vêtements/chaussures dans le
- * résultat au lieu de ceux du produit.
+ * Chaque tour (plein pied / mi-corps / gros plan) est généré indépendamment à
+ * partir des MÊMES person/garment/pairedGarment + SA PROPRE pose_reference —
+ * volontairement sans réutiliser l'image générée au tour précédent : la
+ * chaîner créait un conflit entre deux sources de pose photoréalistes
+ * (l'ancienne image générée + la nouvelle référence de pose) que le modèle
+ * réconciliait mal, d'où des tours identiques entre eux ou une tenue qui
+ * dérivait vers celle du mannequin stock plutôt que celle du produit.
+ *
+ * Point critique : les photos de référence de pose sont des photos stock
+ * photoréalistes montrant un mannequin habillé au complet (veste, jean,
+ * sneakers...), pas un simple squelette de pose neutre. En pratique, une
+ * simple mention "ignore ses vêtements" ne suffit pas à empêcher Gemini de
+ * reprendre quasiment tel quel l'outfit (voire le visage) de cette photo —
+ * d'où le double renforcement ci-dessous : instruction négative répétée sur
+ * POSE_REF lui-même, ET rappel explicite + contrasté dans les instructions
+ * de clôture (buildTryOnGenerationInstructions), qui sont la dernière chose
+ * lue par le modèle avant de générer.
  */
 const TRY_ON_REFERENCE_LABELS = {
   person: {
@@ -138,14 +151,16 @@ const TRY_ON_REFERENCE_LABELS = {
       "This is the exact person to render in the output. Preserve their face shape, " +
       "facial features, hairstyle, hair color, skin tone, height and body proportions " +
       "EXACTLY as shown. Do not beautify, do not change ethnicity, do not alter facial " +
-      "structure.",
+      "structure. This is the ONLY source for the output's face and body — no other " +
+      "image in this request.",
   },
   garment: {
     label: "GARMENT REFERENCE — MUST WEAR EXACTLY THIS",
     instructions:
       "This is the exact garment/product the person must be wearing in the output. " +
       "Reproduce its silhouette, cut, color, pattern, texture and material precisely. " +
-      "Do not substitute, simplify or reinterpret it as a different garment.",
+      "Do not substitute, simplify or reinterpret it as a different garment. This is the " +
+      "ONLY source for the output's main garment — no other image in this request.",
   },
   pairedGarment: {
     label: "PAIRED GARMENT REFERENCE",
@@ -154,30 +169,28 @@ const TRY_ON_REFERENCE_LABELS = {
       "garment above. Reproduce it precisely as well.",
   },
   poseRef: {
-    label: "POSE & ENVIRONMENT REFERENCE",
+    label: "POSE & ENVIRONMENT REFERENCE — STOCK PHOTO, DO NOT COPY ITS PERSON",
     instructions:
-      "Use ONLY the body pose, camera angle, framing, environment, background and " +
-      "lighting from this image. Completely IGNORE any clothing, shoes or accessories " +
-      "visible on the person in this image — they belong to a different photoshoot and " +
-      "must NOT appear in the output.",
-  },
-  previousShot: {
-    label: "PREVIOUS SHOT — SAME PHOTOSHOOT",
-    instructions:
-      "The same person, wearing the same outfit, in the same environment and lighting, " +
-      "already generated moments ago as part of this same photoshoot. Keep identity, " +
-      "outfit, environment and lighting perfectly consistent with it — only the framing " +
-      "and camera angle should change, driven by the pose & environment reference below.",
+      "This stock photo shows a DIFFERENT, unrelated person wearing DIFFERENT clothes. " +
+      "From this image, copy ONLY the body pose/skeleton, camera angle, framing, distance, " +
+      "environment, background and lighting mood. Do NOT copy this image's person, face, " +
+      "body type, or ANY item of clothing (jacket, shirt, pants, shoes) — none of it must " +
+      "appear in the output. The person and outfit in the output come exclusively from the " +
+      "PERSON REFERENCE and GARMENT REFERENCE above.",
   },
 } as const;
 
-const TRY_ON_GENERATION_INSTRUCTIONS = `
-Generate a single photorealistic fashion editorial photograph combining all the reference
-images above according to their labelled roles.
-Sharp, accurate garment rendering. Natural, professional editorial lighting consistent with
-the pose & environment reference. No face alterations. No text, no watermark, no collage —
-a single clean photograph.
-`.trim();
+function buildTryOnGenerationInstructions(): string {
+  return `
+Generate a single photorealistic fashion editorial photograph.
+The person's face and body come EXCLUSIVELY from the PERSON REFERENCE. The outfit comes
+EXCLUSIVELY from the GARMENT REFERENCE (and PAIRED GARMENT REFERENCE, if provided). The pose,
+camera framing and environment come EXCLUSIVELY from the POSE & ENVIRONMENT REFERENCE — but
+NOT that reference's own person or clothing, which must be completely absent from the output.
+Sharp, accurate garment rendering. Natural, professional editorial lighting. No face
+alterations. No text, no watermark, no collage — a single clean photograph.
+  `.trim();
+}
 
 export interface TryOnReferenceImage {
   role: keyof typeof TRY_ON_REFERENCE_LABELS;
@@ -189,7 +202,9 @@ export interface TryOnReferenceImage {
  * TRY_ON_REFERENCE_LABELS ci-dessus). Utilisée pour les 3 angles — l'identité,
  * le produit et l'éventuel pairing garde-robe sont réinjectés à CHAQUE tour
  * (pas seulement le premier) pour éviter la dérive d'identité/tenue observée
- * en ne les fournissant qu'au premier tour.
+ * en ne les fournissant qu'au premier tour. Chaque tour est indépendant :
+ * pas d'image du tour précédent parmi les références (voir le commentaire
+ * au-dessus de TRY_ON_REFERENCE_LABELS pour le pourquoi).
  */
 export async function generateTryOnImage(
   references: TryOnReferenceImage[]
@@ -200,7 +215,7 @@ export async function generateTryOnImage(
     const { label, instructions } = TRY_ON_REFERENCE_LABELS[role];
     return [{ text: `--- ${label} ---\n${instructions}` }, toPart(image)];
   });
-  parts.push({ text: TRY_ON_GENERATION_INSTRUCTIONS });
+  parts.push({ text: buildTryOnGenerationInstructions() });
 
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,

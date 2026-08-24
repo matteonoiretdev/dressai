@@ -76,7 +76,11 @@ export function PoseImportForm({
         <CardTitle>Ajouter une référence de pose</CardTitle>
         <CardDescription>
           Une catégorie × un environnement = jusqu&apos;à 3 photos (plein pied, mi-corps, gros
-          plan) du même mannequin neutre, dans la même pose/tenue.
+          plan), idéalement les 3 angles d&apos;une même prise de vue continue (même pose, même
+          instant). L&apos;IA n&apos;utilise en théorie que la pose/le cadrage/l&apos;environnement
+          de ces photos, mais un mannequin habillé de façon très marquée (couleurs vives, coupe
+          distinctive) peut quand même &laquo;&nbsp;déteindre&nbsp;&raquo; sur le résultat —
+          privilégie des tenues neutres et discrètes sur le mannequin de référence.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

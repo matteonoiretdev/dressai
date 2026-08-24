@@ -43,14 +43,12 @@ async function loadBaseReferences(context: Context): Promise<TryOnReferenceImage
 /**
  * Job de génération d'un try-on : 3 tours Gemini (plein pied, mi-corps, gros plan).
  *
- * Chaque tour est un step.run indépendant (pas de session de chat persistée
- * entre steps, incompatible avec le modèle d'exécution durable d'Inngest).
- * L'identité, le produit et le pairing garde-robe sont réinjectés en
- * référence à CHAQUE tour (pas seulement le premier) pour éviter que ces
- * éléments dérivent au fil des angles — en ne les fournissant qu'au premier
- * tour, les tours suivants n'avaient que l'image générée précédente comme
- * seule ancre, qui pouvait elle-même s'être écartée du produit réel (voir
- * lib/gemini.ts pour le détail du système de références labellisées).
+ * Chaque tour est un step.run indépendant, généré à partir des MÊMES
+ * person/garment/pairedGarment + SA PROPRE référence de pose pour cet angle —
+ * volontairement sans réutiliser l'image générée au tour précédent (voir le
+ * commentaire au-dessus de TRY_ON_REFERENCE_LABELS dans lib/gemini.ts pour le
+ * pourquoi : chaîner les tours créait un conflit entre deux sources de pose
+ * photoréalistes que le modèle réconciliait mal).
  */
 export const generateTryOn = inngest.createFunction(
   {
@@ -146,81 +144,29 @@ export const generateTryOn = inngest.createFunction(
       };
     });
 
-    const fullBody = await step.run("generate-full-body", async () => {
-      const [base, poseRef] = await Promise.all([
-        loadBaseReferences(context),
-        fetchImageAsBase64(context.subRefs.full_body),
-      ]);
+    for (const [index, angle] of ANGLES.entries()) {
+      await step.run(`generate-${angle}`, async () => {
+        const [base, poseRef] = await Promise.all([
+          loadBaseReferences(context),
+          fetchImageAsBase64(context.subRefs[angle]),
+        ]);
 
-      const result = await generateTryOnImage([...base, { role: "poseRef", image: poseRef }]);
+        const result = await generateTryOnImage([...base, { role: "poseRef", image: poseRef }]);
 
-      const path = `${sessionId}/full_body.${extensionForMimeType(result.image.mimeType)}`;
-      const url = await uploadToGeneratedImages(supabase, path, result.image);
+        const path = `${sessionId}/${angle}.${extensionForMimeType(result.image.mimeType)}`;
+        const url = await uploadToGeneratedImages(supabase, path, result.image);
 
-      const { error } = await supabase.from("generated_images").insert({
-        session_id: sessionId,
-        image_url: url,
-        angle: "full_body",
-        order_index: 0,
+        const { error } = await supabase.from("generated_images").insert({
+          session_id: sessionId,
+          image_url: url,
+          angle,
+          order_index: index,
+        });
+        if (error) throw error;
+
+        return { url };
       });
-      if (error) throw error;
-
-      return { url };
-    });
-
-    const midShot = await step.run("generate-mid-shot", async () => {
-      const [base, previousShot, poseRef] = await Promise.all([
-        loadBaseReferences(context),
-        fetchImageAsBase64(fullBody.url),
-        fetchImageAsBase64(context.subRefs.mid_shot),
-      ]);
-
-      const result = await generateTryOnImage([
-        ...base,
-        { role: "previousShot", image: previousShot },
-        { role: "poseRef", image: poseRef },
-      ]);
-
-      const path = `${sessionId}/mid_shot.${extensionForMimeType(result.image.mimeType)}`;
-      const url = await uploadToGeneratedImages(supabase, path, result.image);
-
-      const { error } = await supabase.from("generated_images").insert({
-        session_id: sessionId,
-        image_url: url,
-        angle: "mid_shot",
-        order_index: 1,
-      });
-      if (error) throw error;
-
-      return { url };
-    });
-
-    await step.run("generate-close-up", async () => {
-      const [base, previousShot, poseRef] = await Promise.all([
-        loadBaseReferences(context),
-        fetchImageAsBase64(midShot.url),
-        fetchImageAsBase64(context.subRefs.close_up),
-      ]);
-
-      const result = await generateTryOnImage([
-        ...base,
-        { role: "previousShot", image: previousShot },
-        { role: "poseRef", image: poseRef },
-      ]);
-
-      const path = `${sessionId}/close_up.${extensionForMimeType(result.image.mimeType)}`;
-      const url = await uploadToGeneratedImages(supabase, path, result.image);
-
-      const { error } = await supabase.from("generated_images").insert({
-        session_id: sessionId,
-        image_url: url,
-        angle: "close_up",
-        order_index: 2,
-      });
-      if (error) throw error;
-
-      return { url };
-    });
+    }
 
     await step.run("mark-completed", async () => {
       const { error } = await supabase
