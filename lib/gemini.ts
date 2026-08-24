@@ -158,13 +158,17 @@ export async function generateImage(params: {
  */
 const TRY_ON_REFERENCE_LABELS = {
   person: {
-    label: "PERSON REFERENCE",
+    label: "PERSON REFERENCE — MOST IMPORTANT CONSTRAINT",
     instructions:
-      "This is the exact person to render in the output. Preserve their face shape, " +
-      "facial features, hairstyle, hair color, skin tone, height and body proportions " +
-      "EXACTLY as shown. Do not beautify, do not change ethnicity, do not alter facial " +
-      "structure. This is the ONLY source for the output's face and body — no other " +
-      "image in this request.",
+      "This is the exact, real individual to render in the output — not a generic or " +
+      "idealized fashion model. Matching this specific person's identity is the single " +
+      "most important constraint of this entire request, more important than pose or " +
+      "environment accuracy. Preserve their exact face shape, nose shape, jaw shape, eye " +
+      "shape and spacing, eyebrows, lips, skin tone and texture, hairstyle, hair color, " +
+      "height and body proportions. Do not beautify, do not idealize, do not change " +
+      "ethnicity, do not blend with a different face, do not alter facial structure in any " +
+      "way. The output must be immediately recognizable as this same individual. This is " +
+      "the ONLY source for the output's face and body — no other image in this request.",
     detailPrefix: "",
   },
   garment: {
@@ -185,16 +189,15 @@ const TRY_ON_REFERENCE_LABELS = {
     detailPrefix: "Specifically, this item is:",
   },
   poseRef: {
-    label: "POSE & ENVIRONMENT REFERENCE — STOCK PHOTO, DO NOT COPY ITS PERSON",
+    label: "ENVIRONMENT, LIGHTING & ATMOSPHERE REFERENCE — STOCK PHOTO, DO NOT COPY ITS PERSON",
     instructions:
-      "This stock photo shows a DIFFERENT, unrelated person wearing DIFFERENT clothes. " +
-      "From this image, copy ONLY the body pose/skeleton, camera angle, framing, distance, " +
-      "environment, background and lighting mood. Do NOT copy this image's person, face, " +
-      "body type, or ANY item of clothing (jacket, shirt, pants, shoes) — none of it must " +
-      "appear in the output. The person and outfit in the output come exclusively from the " +
-      "PERSON REFERENCE and GARMENT REFERENCE above.",
-    detailPrefix:
-      "Explicit pose/framing/environment description (follow this precisely, in addition to the image):",
+      "This stock photo shows a DIFFERENT, unrelated person wearing DIFFERENT clothes. Use " +
+      "it ONLY for the background, environment, lighting mood and depth-of-field/bokeh " +
+      "style. Do NOT copy this image's person, face, body type, body pose, or ANY item of " +
+      "clothing (jacket, shirt, pants, shoes) — none of it must appear in the output. The " +
+      "exact body pose is given separately below as a text description and takes priority " +
+      "over whatever pose this image shows.",
+    detailPrefix: "POSE (strictly follow this, not the pose shown in the reference photo):",
   },
 } as const;
 
@@ -211,18 +214,19 @@ function buildTryOnGenerationInstructions(
     : `wearing ${garment?.detail ?? "the exact garment"} from GARMENT REFERENCE`;
 
   const poseSentence = poseRef?.detail
-    ? `Pose, camera framing and environment (follow this description precisely, in addition ` +
-      `to the POSE & ENVIRONMENT REFERENCE image): "${poseRef.detail}"`
-    : "Pose, camera framing and environment come from the POSE & ENVIRONMENT REFERENCE image.";
+    ? `POSE (strictly follow): ${poseRef.detail}`
+    : "Pose comes from the ENVIRONMENT REFERENCE image.";
 
   return `
 Generate a single photorealistic fashion editorial photograph of the exact person from
-PERSON REFERENCE, ${outfitSentence}.
+PERSON REFERENCE (see above — this is the most important constraint), ${outfitSentence}.
 ${poseSentence}
-The pose & environment reference's own person and clothing must be completely absent from the
-output — it only dictates camera framing, pose and background, never identity or outfit.
-Sharp, accurate garment rendering. Natural, professional editorial lighting. No face
-alterations. No text, no watermark, no collage — a single clean photograph.
+Background, environment, lighting and atmosphere: replicate the ENVIRONMENT REFERENCE photo's
+mood exactly (urban background, lighting, depth of field) — but not its person, pose or
+clothing, which must be completely absent from the output.
+Sharp, accurate garment rendering. Photorealistic, professional editorial fashion photography
+quality. No face alterations, no generic/idealized face. No text, no watermark, no collage —
+a single clean photograph.
   `.trim();
 }
 
@@ -267,6 +271,11 @@ export async function generateTryOnImage(
     contents: [{ role: "user", parts }],
     config: {
       responseModalities: [Modality.TEXT, Modality.IMAGE],
+      // Température basse : privilégie la fidélité aux références (identité,
+      // produit) plutôt que la créativité — la valeur par défaut plus élevée
+      // laissait trop de marge au modèle pour dériver vers un visage
+      // générique de mannequin plutôt que la vraie personne.
+      temperature: 0.3,
     },
   });
 
