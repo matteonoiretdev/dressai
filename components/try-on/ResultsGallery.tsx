@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, TriangleAlert } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -17,6 +17,12 @@ const ANGLE_LABELS: Record<PoseAngle, string> = {
 };
 const ANGLES: PoseAngle[] = ["full_body", "mid_shot", "close_up"];
 
+// Si le statut reste "pending" au-delà de ce délai, le job Inngest n'a
+// vraisemblablement jamais démarré (le premier step, "mark-processing", passe
+// le statut à "processing" en quelques secondes en temps normal) — le plus
+// souvent parce qu'Inngest n'est pas connecté au déploiement en production.
+const PENDING_STALL_MS = 20_000;
+
 interface SessionResponse {
   session: TryOnSession;
   images: GeneratedImage[];
@@ -25,9 +31,13 @@ interface SessionResponse {
 
 export function ResultsGallery({ sessionId }: { sessionId: string }) {
   const [data, setData] = useState<SessionResponse | null>(null);
+  const [stalledPending, setStalledPending] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
+    startedAtRef.current = Date.now();
+
     async function poll() {
       try {
         const response = await fetch(`/api/try-on/${sessionId}`);
@@ -37,6 +47,11 @@ export function ResultsGallery({ sessionId }: { sessionId: string }) {
         if (json.session.status === "completed" || json.session.status === "failed") {
           if (intervalRef.current) clearInterval(intervalRef.current);
         }
+
+        setStalledPending(
+          json.session.status === "pending" &&
+            Date.now() - (startedAtRef.current ?? Date.now()) > PENDING_STALL_MS
+        );
       } catch {
         // Erreur transitoire (réseau, 5xx) : on retentera au prochain tick du polling.
       }
@@ -82,6 +97,18 @@ export function ResultsGallery({ sessionId }: { sessionId: string }) {
                 Génération en cours... ({images.length}/{ANGLES.length})
               </p>
             </div>
+          )}
+
+          {stalledPending && (
+            <Card className="flex flex-row items-start gap-3 border-amber-500/50 bg-amber-500/5 p-4">
+              <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" />
+              <p className="text-sm text-muted-foreground">
+                Ça reste bloqué à &laquo;&nbsp;en attente&nbsp;&raquo; depuis plus de 20 secondes :
+                le job de génération n&apos;a probablement jamais démarré. En général ça veut dire
+                qu&apos;Inngest n&apos;est pas encore connecté à ce déploiement (voir la section
+                Inngest du README).
+              </p>
+            </Card>
           )}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
