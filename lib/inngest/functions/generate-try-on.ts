@@ -9,11 +9,27 @@ import type { PoseAngle } from "@/lib/types";
 
 const ANGLES: PoseAngle[] = ["full_body", "mid_shot", "close_up"];
 
+interface PoseSubRef {
+  url: string;
+  description: string | null;
+}
+
 interface Context {
   neutralUrl: string;
   productUrl: string;
+  productDetail: string;
   wardrobeUrl: string | null;
-  subRefs: Record<PoseAngle, string>;
+  wardrobeDetail: string | null;
+  subRefs: Record<PoseAngle, PoseSubRef>;
+}
+
+/** Décrit un vêtement en une phrase concrète (catégorie + nom + couleur si connue),
+ * utilisée dans le prompt à la place du terme générique "the garment"/"the paired
+ * item" — voir TryOnReferenceImage.detail dans lib/gemini.ts. */
+function describeGarment(category: string, name: string | null, color: string | null): string {
+  const parts = [`a "${name ?? category}" (category: ${category})`];
+  if (color) parts.push(`color: ${color}`);
+  return parts.join(", ");
 }
 
 /**
@@ -32,10 +48,10 @@ async function loadBaseReferences(context: Context): Promise<TryOnReferenceImage
 
   const references: TryOnReferenceImage[] = [
     { role: "person", image: person },
-    { role: "garment", image: garment },
+    { role: "garment", image: garment, detail: context.productDetail },
   ];
-  if (pairedGarment) {
-    references.push({ role: "pairedGarment", image: pairedGarment });
+  if (pairedGarment && context.wardrobeDetail) {
+    references.push({ role: "pairedGarment", image: pairedGarment, detail: context.wardrobeDetail });
   }
   return references;
 }
@@ -96,16 +112,18 @@ export const generateTryOn = inngest.createFunction(
       }
 
       let wardrobeImagePath: string | null = null;
+      let wardrobeDetail: string | null = null;
       if (session.wardrobe_item_id) {
         const { data: item, error: itemError } = await supabase
           .from("wardrobe_items")
-          .select("image_url, clean_image_url")
+          .select("image_url, clean_image_url, category, name, color_primary")
           .eq("id", session.wardrobe_item_id)
           .single();
         if (itemError || !item) {
           throw new NonRetriableError("Article de garde-robe introuvable.");
         }
         wardrobeImagePath = item.clean_image_url ?? item.image_url;
+        wardrobeDetail = describeGarment(item.category, item.name, item.color_primary);
       }
 
       if (!session.pose_reference_id) {
@@ -114,15 +132,15 @@ export const generateTryOn = inngest.createFunction(
 
       const { data: subRefs, error: subRefsError } = await supabase
         .from("pose_sub_references")
-        .select("angle, image_url")
+        .select("angle, image_url, pose_description")
         .eq("reference_id", session.pose_reference_id);
       if (subRefsError || !subRefs?.length) {
         throw new NonRetriableError("Aucune sous-référence de pose trouvée pour cette session.");
       }
 
       const subRefByAngle = Object.fromEntries(
-        subRefs.map((s) => [s.angle, s.image_url])
-      ) as Record<PoseAngle, string>;
+        subRefs.map((s) => [s.angle, { url: s.image_url, description: s.pose_description }])
+      ) as Record<PoseAngle, PoseSubRef>;
 
       for (const angle of ANGLES) {
         if (!subRefByAngle[angle]) {
@@ -139,19 +157,29 @@ export const generateTryOn = inngest.createFunction(
       return {
         neutralUrl,
         productUrl,
+        productDetail: describeGarment(
+          session.product_category,
+          session.product_name,
+          session.product_color
+        ),
         wardrobeUrl,
+        wardrobeDetail,
         subRefs: subRefByAngle,
       };
     });
 
     for (const [index, angle] of ANGLES.entries()) {
       await step.run(`generate-${angle}`, async () => {
-        const [base, poseRef] = await Promise.all([
+        const subRef = context.subRefs[angle];
+        const [base, poseRefImage] = await Promise.all([
           loadBaseReferences(context),
-          fetchImageAsBase64(context.subRefs[angle]),
+          fetchImageAsBase64(subRef.url),
         ]);
 
-        const result = await generateTryOnImage([...base, { role: "poseRef", image: poseRef }]);
+        const result = await generateTryOnImage([
+          ...base,
+          { role: "poseRef", image: poseRefImage, detail: subRef.description ?? undefined },
+        ]);
 
         const path = `${sessionId}/${angle}.${extensionForMimeType(result.image.mimeType)}`;
         const url = await uploadToGeneratedImages(supabase, path, result.image);

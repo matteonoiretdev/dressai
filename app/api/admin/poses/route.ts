@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ANGLES, ANGLE_LABELS, ENVIRONMENTS } from "@/lib/constants/poses";
+import { describePoseReference } from "@/lib/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { fileToBase64 } from "@/lib/utils/image";
 import type { PoseAngle, PoseEnvironment, WardrobeCategory } from "@/lib/types";
 
 const CATEGORIES: WardrobeCategory[] = [
@@ -105,10 +107,22 @@ export async function POST(request: Request) {
       const ext = MIME_EXT[file.type] ?? "jpg";
       const path = `${category}/${environment}/${angle}.${ext}`;
 
-      const { error: uploadError } = await admin.storage
-        .from("reference-library")
-        .upload(path, file, { contentType: file.type || "image/jpeg", upsert: true });
-      if (uploadError) throw uploadError;
+      const [uploadResult, poseDescription] = await Promise.all([
+        admin.storage
+          .from("reference-library")
+          .upload(path, file, { contentType: file.type || "image/jpeg", upsert: true }),
+        // Décrit la pose en mots — donné à la génération try-on en plus de
+        // l'image (voir lib/gemini.ts). Best-effort : une photo mal décrite
+        // reste utilisable via l'image seule, donc on ne bloque pas l'upload
+        // si Gemini échoue sur cette étape.
+        fileToBase64(file)
+          .then((image) => describePoseReference(image))
+          .catch((error) => {
+            console.error("[api/admin/poses] describePoseReference a échoué", error);
+            return null;
+          }),
+      ]);
+      if (uploadResult.error) throw uploadResult.error;
 
       const {
         data: { publicUrl },
@@ -120,6 +134,7 @@ export async function POST(request: Request) {
         angle_label: ANGLE_LABELS[angle],
         image_url: publicUrl,
         order_index: orderIndex++,
+        pose_description: poseDescription,
       });
       if (subRefError) throw subRefError;
     }

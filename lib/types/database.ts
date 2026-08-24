@@ -157,6 +157,7 @@ export interface Database {
           angle_label: string;
           image_url: string;
           order_index: number | null;
+          pose_description: string | null;
         };
         Insert: {
           id?: string;
@@ -165,6 +166,7 @@ export interface Database {
           angle_label: string;
           image_url: string;
           order_index?: number | null;
+          pose_description?: string | null;
         };
         Update: {
           id?: string;
@@ -173,6 +175,7 @@ export interface Database {
           angle_label?: string;
           image_url?: string;
           order_index?: number | null;
+          pose_description?: string | null;
         };
         Relationships: [
           {

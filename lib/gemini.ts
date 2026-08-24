@@ -63,6 +63,18 @@ item being sold and return ONLY a valid JSON object, no markdown, no explanation
   "color": "#hexcolor"
 }
   `.trim(),
+
+  describePoseReference: `
+Describe ONLY the body pose, camera angle, framing distance and environment of
+the main person in this photo, as a concise photography direction (2-4
+sentences), in this style: "seated on concrete steps, body turned 3/4 toward
+camera, left elbow resting on left knee, right arm hanging loosely, legs bent
+and slightly apart, looking directly at camera with a relaxed confident
+expression. Both feet flat on a lower step."
+Do NOT describe their face, hair, skin tone, body type, or ANY clothing —
+describe only the pose, camera framing/distance and background/environment.
+Return plain text only, no markdown, no preamble, no quotes.
+  `.trim(),
 };
 
 function toPart(image: ImagePart): Part {
@@ -153,6 +165,7 @@ const TRY_ON_REFERENCE_LABELS = {
       "EXACTLY as shown. Do not beautify, do not change ethnicity, do not alter facial " +
       "structure. This is the ONLY source for the output's face and body — no other " +
       "image in this request.",
+    detailPrefix: "",
   },
   garment: {
     label: "GARMENT REFERENCE — MUST WEAR EXACTLY THIS",
@@ -161,12 +174,15 @@ const TRY_ON_REFERENCE_LABELS = {
       "Reproduce its silhouette, cut, color, pattern, texture and material precisely. " +
       "Do not substitute, simplify or reinterpret it as a different garment. This is the " +
       "ONLY source for the output's main garment — no other image in this request.",
+    detailPrefix: "Specifically, this item is:",
   },
   pairedGarment: {
-    label: "PAIRED GARMENT REFERENCE",
+    label: "PAIRED GARMENT REFERENCE — MUST WEAR EXACTLY THIS TOO",
     instructions:
       "An additional garment from the person's own wardrobe, worn together with the " +
-      "garment above. Reproduce it precisely as well.",
+      "garment above. Reproduce its silhouette, cut, color, pattern, texture and material " +
+      "precisely, exactly as shown — do not substitute or reinterpret it.",
+    detailPrefix: "Specifically, this item is:",
   },
   poseRef: {
     label: "POSE & ENVIRONMENT REFERENCE — STOCK PHOTO, DO NOT COPY ITS PERSON",
@@ -177,16 +193,34 @@ const TRY_ON_REFERENCE_LABELS = {
       "body type, or ANY item of clothing (jacket, shirt, pants, shoes) — none of it must " +
       "appear in the output. The person and outfit in the output come exclusively from the " +
       "PERSON REFERENCE and GARMENT REFERENCE above.",
+    detailPrefix:
+      "Explicit pose/framing/environment description (follow this precisely, in addition to the image):",
   },
 } as const;
 
-function buildTryOnGenerationInstructions(): string {
+function buildTryOnGenerationInstructions(
+  references: TryOnReferenceImage[]
+): string {
+  const garment = references.find((r) => r.role === "garment");
+  const pairedGarment = references.find((r) => r.role === "pairedGarment");
+  const poseRef = references.find((r) => r.role === "poseRef");
+
+  const outfitSentence = pairedGarment
+    ? `wearing ${garment?.detail ?? "the exact garment"} from GARMENT REFERENCE together with ` +
+      `${pairedGarment.detail ?? "the exact paired item"} from PAIRED GARMENT REFERENCE`
+    : `wearing ${garment?.detail ?? "the exact garment"} from GARMENT REFERENCE`;
+
+  const poseSentence = poseRef?.detail
+    ? `Pose, camera framing and environment (follow this description precisely, in addition ` +
+      `to the POSE & ENVIRONMENT REFERENCE image): "${poseRef.detail}"`
+    : "Pose, camera framing and environment come from the POSE & ENVIRONMENT REFERENCE image.";
+
   return `
-Generate a single photorealistic fashion editorial photograph.
-The person's face and body come EXCLUSIVELY from the PERSON REFERENCE. The outfit comes
-EXCLUSIVELY from the GARMENT REFERENCE (and PAIRED GARMENT REFERENCE, if provided). The pose,
-camera framing and environment come EXCLUSIVELY from the POSE & ENVIRONMENT REFERENCE — but
-NOT that reference's own person or clothing, which must be completely absent from the output.
+Generate a single photorealistic fashion editorial photograph of the exact person from
+PERSON REFERENCE, ${outfitSentence}.
+${poseSentence}
+The pose & environment reference's own person and clothing must be completely absent from the
+output — it only dictates camera framing, pose and background, never identity or outfit.
 Sharp, accurate garment rendering. Natural, professional editorial lighting. No face
 alterations. No text, no watermark, no collage — a single clean photograph.
   `.trim();
@@ -195,6 +229,16 @@ alterations. No text, no watermark, no collage — a single clean photograph.
 export interface TryOnReferenceImage {
   role: keyof typeof TRY_ON_REFERENCE_LABELS;
   image: ImagePart;
+  /**
+   * Détail spécifique à cette instance, ajouté après l'instruction de base du
+   * rôle. Pour garment/pairedGarment : nomme concrètement l'article (ex. "a
+   * pair of sneakers (\"Nike Vaporwaffle\")") au lieu du terme générique
+   * "the garment" — rend le prompt spécifique à la situation plutôt que
+   * générique. Pour poseRef : description textuelle explicite de la pose
+   * (voir describePoseReference ci-dessous), qui guide bien plus fiablement
+   * le modèle que l'image seule.
+   */
+  detail?: string;
 }
 
 /**
@@ -211,11 +255,12 @@ export async function generateTryOnImage(
 ): Promise<GeneratedImageResult> {
   const ai = getClient();
 
-  const parts: Part[] = references.flatMap(({ role, image }) => {
-    const { label, instructions } = TRY_ON_REFERENCE_LABELS[role];
-    return [{ text: `--- ${label} ---\n${instructions}` }, toPart(image)];
+  const parts: Part[] = references.flatMap(({ role, image, detail }) => {
+    const { label, instructions, detailPrefix } = TRY_ON_REFERENCE_LABELS[role];
+    const text = detail ? `${instructions}\n${detailPrefix} ${detail}` : instructions;
+    return [{ text: `--- ${label} ---\n${text}` }, toPart(image)];
   });
-  parts.push({ text: buildTryOnGenerationInstructions() });
+  parts.push({ text: buildTryOnGenerationInstructions(references) });
 
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
@@ -299,4 +344,32 @@ Clean crisp edges. No artifacts or halos. No other garment visible.
   `.trim();
 
   return generateImage({ images: [image], prompt });
+}
+
+/**
+ * Décrit en mots la pose/le cadrage/l'environnement d'une photo de référence
+ * de pose (voir app/api/admin/poses/route.ts, appelé à l'upload). Donner
+ * cette description en texte à la génération try-on, en complément de
+ * l'image, s'est avéré nettement plus fiable que l'image seule pour empêcher
+ * Gemini de recopier le mannequin de la photo stock (voir generateTryOnImage
+ * et TRY_ON_REFERENCE_LABELS.poseRef).
+ */
+export async function describePoseReference(image: ImagePart): Promise<string> {
+  const ai = getClient();
+
+  const response = await ai.models.generateContent({
+    model: TEXT_MODEL,
+    contents: [
+      {
+        role: "user",
+        parts: [toPart(image), { text: PROMPTS.describePoseReference }],
+      },
+    ],
+  });
+
+  const text = response.text?.trim();
+  if (!text) {
+    throw new Error("Gemini n'a renvoyé aucune description de pose.");
+  }
+  return text;
 }
