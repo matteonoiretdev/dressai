@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { parseJsonResponse } from "@/lib/utils/fetch-json";
 import type { TryOnSession } from "@/lib/types";
 
 export function EnvironmentSwitcher({
@@ -35,8 +36,7 @@ export function EnvironmentSwitcher({
           poseReferenceId,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Changement d'environnement impossible.");
+      const data = await parseJsonResponse<{ sessionId: string }>(response);
       router.push(`/try-on/${data.sessionId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Une erreur est survenue.");

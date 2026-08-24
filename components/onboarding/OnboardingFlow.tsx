@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PhotoUploader, MIN_PHOTOS } from "@/components/onboarding/PhotoUploader";
 import { NeutralImageValidator } from "@/components/onboarding/NeutralImageValidator";
+import { compressImages } from "@/lib/utils/compress-image";
+import { parseJsonResponse } from "@/lib/utils/fetch-json";
 
 type Step = "upload" | "validate";
 
@@ -23,12 +25,14 @@ export function OnboardingFlow() {
   async function generateCandidate() {
     setIsGenerating(true);
     try {
+      const compressed = await compressImages(files);
       const formData = new FormData();
-      files.forEach((file) => formData.append("photos", file));
+      compressed.forEach((file) => formData.append("photos", file));
 
       const response = await fetch("/api/onboarding", { method: "POST", body: formData });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Échec de la génération.");
+      const data = await parseJsonResponse<{ candidatePath: string; previewUrl: string }>(
+        response
+      );
 
       setCandidatePath(data.candidatePath);
       setPreviewUrl(data.previewUrl);
@@ -50,8 +54,7 @@ export function OnboardingFlow() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ candidatePath }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Échec de la validation.");
+      await parseJsonResponse(response);
 
       toast.success("Image neutre enregistrée !");
       router.refresh();

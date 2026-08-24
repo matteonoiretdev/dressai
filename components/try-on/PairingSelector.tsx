@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { parseJsonResponse } from "@/lib/utils/fetch-json";
 import { COMPLEMENTARY } from "@/lib/utils/wardrobe-pairing";
 import type { WardrobeCategory, WardrobeItem } from "@/lib/types";
 
@@ -21,15 +22,16 @@ export function PairingSelector({
   useEffect(() => {
     if (!target) return;
     fetch("/api/wardrobe")
-      .then((res) => res.json())
+      .then((res) => parseJsonResponse<{ items: WardrobeItem[] }>(res))
       .then((data) => {
-        const filtered = (data.items ?? []).filter((i: WardrobeItem) => i.category === target);
+        const filtered = (data.items ?? []).filter((i) => i.category === target);
         setItems(filtered);
         if (filtered.length > 0 && !selectedId) {
-          const neutral = filtered.find((i: WardrobeItem) => i.is_neutral) ?? filtered[0];
+          const neutral = filtered.find((i) => i.is_neutral) ?? filtered[0];
           onSelect(neutral.id);
         }
-      });
+      })
+      .catch(() => setItems([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 

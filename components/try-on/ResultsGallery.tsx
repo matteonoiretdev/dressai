@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EnvironmentSwitcher } from "@/components/try-on/EnvironmentSwitcher";
+import { parseJsonResponse } from "@/lib/utils/fetch-json";
 import type { GeneratedImage, PoseAngle, TryOnSession } from "@/lib/types";
 
 const ANGLE_LABELS: Record<PoseAngle, string> = {
@@ -28,13 +29,16 @@ export function ResultsGallery({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     async function poll() {
-      const response = await fetch(`/api/try-on/${sessionId}`);
-      if (!response.ok) return;
-      const json: SessionResponse = await response.json();
-      setData(json);
+      try {
+        const response = await fetch(`/api/try-on/${sessionId}`);
+        const json = await parseJsonResponse<SessionResponse>(response);
+        setData(json);
 
-      if (json.session.status === "completed" || json.session.status === "failed") {
-        if (intervalRef.current) clearInterval(intervalRef.current);
+        if (json.session.status === "completed" || json.session.status === "failed") {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+        }
+      } catch {
+        // Erreur transitoire (réseau, 5xx) : on retentera au prochain tick du polling.
       }
     }
 

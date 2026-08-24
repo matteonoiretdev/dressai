@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { parseJsonResponse } from "@/lib/utils/fetch-json";
 import type { WardrobeCategory, WardrobeItem } from "@/lib/types";
 
 const CATEGORY_LABELS: Record<WardrobeCategory, string> = {
@@ -37,7 +38,7 @@ export function WardrobeGrid({ refreshKey }: { refreshKey: number }) {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/wardrobe")
-      .then((res) => res.json())
+      .then((res) => parseJsonResponse<{ items: WardrobeItem[] }>(res))
       .then((data) => {
         if (!cancelled) setItems(data.items ?? []);
       })

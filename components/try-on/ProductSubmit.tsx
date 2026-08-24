@@ -10,6 +10,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PairingSelector } from "@/components/try-on/PairingSelector";
+import { compressImage } from "@/lib/utils/compress-image";
+import { parseJsonResponse } from "@/lib/utils/fetch-json";
 import type { ExtractedProduct } from "@/lib/types";
 
 interface ExtractedState extends ExtractedProduct {
@@ -35,8 +37,9 @@ export function ProductSubmit() {
     try {
       let requestInit: RequestInit;
       if (file) {
+        const compressed = await compressImage(file);
         const formData = new FormData();
-        formData.append("image", file);
+        formData.append("image", compressed);
         requestInit = { method: "POST", body: formData };
       } else {
         requestInit = {
@@ -47,8 +50,7 @@ export function ProductSubmit() {
       }
 
       const response = await fetch("/api/product", requestInit);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Extraction impossible.");
+      const data = await parseJsonResponse<ExtractedState>(response);
       setExtracted(data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Une erreur est survenue.");
@@ -73,8 +75,7 @@ export function ProductSubmit() {
           wardrobeItemId: wardrobeItemId ?? undefined,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Génération impossible.");
+      const data = await parseJsonResponse<{ sessionId: string }>(response);
       router.push(`/try-on/${data.sessionId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Une erreur est survenue.");

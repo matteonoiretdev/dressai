@@ -15,6 +15,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { compressImage } from "@/lib/utils/compress-image";
+import { parseJsonResponse } from "@/lib/utils/fetch-json";
+import type { WardrobeItem } from "@/lib/types";
 
 export function AddItemModal({ onAdded }: { onAdded: () => void }) {
   const [open, setOpen] = useState(false);
@@ -25,11 +28,11 @@ export function AddItemModal({ onAdded }: { onAdded: () => void }) {
     if (!file) return;
     setIsSubmitting(true);
     try {
+      const compressed = await compressImage(file);
       const formData = new FormData();
-      formData.append("image", file);
+      formData.append("image", compressed);
       const response = await fetch("/api/wardrobe", { method: "POST", body: formData });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Échec de l'ajout.");
+      const data = await parseJsonResponse<{ item: WardrobeItem }>(response);
 
       toast.success(`"${data.item.name}" ajouté au dressing.`);
       setOpen(false);
