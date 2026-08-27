@@ -251,9 +251,14 @@ export async function generateTryOnImage(
     contents: [{ role: "user", parts }],
     config: {
       responseModalities: [Modality.TEXT, Modality.IMAGE],
-      // Température basse : privilégie la fidélité aux références (identité,
-      // produit) plutôt que la créativité.
-      temperature: 0.3,
+      // Gemini 3 : Google recommande de garder la température par défaut
+      // (1.0) pour de meilleurs résultats — une valeur plus basse peut nuire
+      // au raisonnement du modèle. On comptait initialement sur une
+      // température basse pour privilégier la fidélité aux références,
+      // mais ce n'est plus la bonne approche sur ce modèle ; la fidélité se
+      // pilote plutôt via le prompt (voir les instructions par référence
+      // ci-dessus) et thinkingConfig.
+      temperature: 1.0,
       // Thinking level élevé : testé par l'utilisateur dans AI Studio sur ce
       // même prompt, donne de meilleurs résultats (plus de raisonnement avant
       // de générer l'image, donc plus fidèle aux références) qu'en laissant
