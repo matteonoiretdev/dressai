@@ -176,8 +176,9 @@ export async function generateTryOnImage(
     if (ref.role === "person") {
       parts.push({
         text:
-          `Using Reference Image ${index} ("the person"): preserve exactly this person's ` +
-          "face, hair, skin tone, height and body morphology in the output.",
+          `Using Reference Image ${index} ("the person"): use this exact person's real face ` +
+          "in the output — the same face, not a new or similar-looking one. Also match their " +
+          "hair, skin tone, height and body morphology exactly.",
       });
     } else if (ref.role === "garment" || ref.role === "pairedGarment") {
       const name = ref.detail ?? "this item";
@@ -208,11 +209,11 @@ export async function generateTryOnImage(
 
   parts.push({
     text:
-      `Generate a fashion editorial photo of the person from Reference Image 1 in this exact ` +
-      `pose${outfitPhrase}, matching the atmosphere, lighting and background from the style ` +
-      "reference. Preserve the person's exact face and identity — this must be recognizably " +
-      "the same person, not a generic model. Professional fashion photography, photorealistic, " +
-      "high-end lookbook quality, sharp garment details.",
+      `Generate a fashion editorial photo using the exact same face as Reference Image 1 in ` +
+      `this exact pose${outfitPhrase}, matching the atmosphere, lighting and background from ` +
+      "the style reference. The face must be the real face from Reference Image 1, unchanged " +
+      "— not a new face, not a similar-looking model. Professional fashion photography, " +
+      "photorealistic, high-end lookbook quality, sharp garment details.",
   });
 
   const response = await ai.models.generateContent({
