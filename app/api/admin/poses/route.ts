@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ANGLES, ANGLE_LABELS, ENVIRONMENTS } from "@/lib/constants/poses";
-import { describePoseReference } from "@/lib/gemini";
+import { describePoseReference, obscureFaceInPoseReference } from "@/lib/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { fileToBase64 } from "@/lib/utils/image";
+import { extensionForMimeType, fileToBase64 } from "@/lib/utils/image";
 import type { PoseAngle, PoseEnvironment, WardrobeCategory } from "@/lib/types";
+
+// Jusqu'à 3 photos, chacune avec 2 appels Gemini (description + floutage du
+// visage) : laisse de la marge, une génération d'image peut prendre 10-20s.
+export const maxDuration = 60;
 
 const CATEGORIES: WardrobeCategory[] = [
   "tops",
@@ -16,12 +20,6 @@ const CATEGORIES: WardrobeCategory[] = [
   "jackets",
   "accessories",
 ];
-
-const MIME_EXT: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
 
 /**
  * Outil d'admin temporaire — voir app/(app)/admin/poses/page.tsx pour le
@@ -104,25 +102,36 @@ export async function POST(request: Request) {
 
     let orderIndex = 0;
     for (const { angle, file } of files) {
-      const ext = MIME_EXT[file.type] ?? "jpg";
+      const original = await fileToBase64(file);
+
+      // Description texte de la pose + floutage du visage du mannequin, tous
+      // deux calculés sur la photo ORIGINALE (avant floutage, pour que la
+      // description reste précise). Best-effort : si Gemini échoue sur l'un
+      // ou l'autre, on retombe sur la photo brute plutôt que de bloquer
+      // l'upload — voir lib/gemini.ts pour le pourquoi du floutage (le
+      // visage du mannequin stock "fuite" sinon dans les générations).
+      const [poseDescription, blurred] = await Promise.all([
+        describePoseReference(original).catch((error) => {
+          console.error("[api/admin/poses] describePoseReference a échoué", error);
+          return null;
+        }),
+        obscureFaceInPoseReference(original).catch((error) => {
+          console.error("[api/admin/poses] obscureFaceInPoseReference a échoué", error);
+          return null;
+        }),
+      ]);
+
+      const imageToStore = blurred?.image ?? original;
+      const ext = extensionForMimeType(imageToStore.mimeType);
       const path = `${category}/${environment}/${angle}.${ext}`;
 
-      const [uploadResult, poseDescription] = await Promise.all([
-        admin.storage
-          .from("reference-library")
-          .upload(path, file, { contentType: file.type || "image/jpeg", upsert: true }),
-        // Décrit la pose en mots — donné à la génération try-on en plus de
-        // l'image (voir lib/gemini.ts). Best-effort : une photo mal décrite
-        // reste utilisable via l'image seule, donc on ne bloque pas l'upload
-        // si Gemini échoue sur cette étape.
-        fileToBase64(file)
-          .then((image) => describePoseReference(image))
-          .catch((error) => {
-            console.error("[api/admin/poses] describePoseReference a échoué", error);
-            return null;
-          }),
-      ]);
-      if (uploadResult.error) throw uploadResult.error;
+      const { error: uploadError } = await admin.storage
+        .from("reference-library")
+        .upload(path, Buffer.from(imageToStore.data, "base64"), {
+          contentType: imageToStore.mimeType,
+          upsert: true,
+        });
+      if (uploadError) throw uploadError;
 
       const {
         data: { publicUrl },

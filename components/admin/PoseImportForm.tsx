@@ -77,10 +77,10 @@ export function PoseImportForm({
         <CardDescription>
           Une catégorie × un environnement = jusqu&apos;à 3 photos (plein pied, mi-corps, gros
           plan), idéalement les 3 angles d&apos;une même prise de vue continue (même pose, même
-          instant). L&apos;IA n&apos;utilise en théorie que la pose/le cadrage/l&apos;environnement
-          de ces photos, mais un mannequin habillé de façon très marquée (couleurs vives, coupe
-          distinctive) peut quand même &laquo;&nbsp;déteindre&nbsp;&raquo; sur le résultat —
-          privilégie des tenues neutres et discrètes sur le mannequin de référence.
+          instant). Le visage du mannequin est automatiquement flouté à l&apos;upload (pour qu&apos;il
+          ne &laquo;&nbsp;déteigne&nbsp;&raquo; pas sur le visage de l&apos;utilisateur généré) —
+          une tenue neutre et discrète sur le mannequin reste préférable, mais n&apos;est plus
+          critique.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

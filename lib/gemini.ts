@@ -304,6 +304,28 @@ Clean crisp edges. No artifacts or halos. No other garment visible.
 }
 
 /**
+ * Floute le visage du mannequin sur une photo de référence de pose, appelé à
+ * l'upload (voir app/api/admin/poses/route.ts). Constaté par test isolé
+ * (personne + pose, sans vêtement, plusieurs essais) : quand le mannequin de
+ * la photo de pose a un visage net et bien visible, ce visage "fuite" dans le
+ * résultat et prend le dessus sur la vraie référence utilisateur, quel que
+ * soit le prompt. Anonymiser le mannequin à la source règle le problème sans
+ * devoir chercher des photos stock "sans visage".
+ */
+export async function obscureFaceInPoseReference(image: ImagePart): Promise<GeneratedImageResult> {
+  const prompt = `
+Edit this photo: heavily blur ONLY the face of the person shown, so their
+identity is not recognizable — like a strong gaussian blur applied just to
+the face area.
+Preserve everything else EXACTLY unchanged: body pose, body position,
+clothing, hair, environment, background, lighting, framing and depth of
+field. Do not blur or alter anything other than the face.
+  `.trim();
+
+  return generateImage({ images: [image], prompt });
+}
+
+/**
  * Décrit en mots la pose/le cadrage/l'environnement d'une photo de référence
  * de pose (voir app/api/admin/poses/route.ts, appelé à l'upload). Donner
  * cette description en texte à la génération try-on, en complément de
