@@ -195,7 +195,9 @@ export async function generateTryOnImage(
       parts.push({
         text:
           `Using Reference Image ${index} ("${name}"): the person must wear exactly this, ` +
-          "preserving the exact colorway, silhouette, cut and material.",
+          "preserving the exact colorway, silhouette, cut and material. This image is the " +
+          "single source of truth for its appearance — never invent a different color, " +
+          "pattern, logo or design for it.",
       });
     } else if (ref.role === "garmentCloseup") {
       parts.push({
@@ -211,8 +213,9 @@ export async function generateTryOnImage(
       parts.push({
         text:
           `Using Reference Image ${index} ("the style"): replicate exactly this photo's ` +
-          "atmosphere, lighting, background and depth of field. Do not use this photo's own " +
-          "person or clothing.",
+          "atmosphere, lighting, background and depth of field. The person shown in this " +
+          "photo is not real and is unrelated to this generation — never use their face, " +
+          "body or any of their clothing; it must not influence the outfit in any way.",
       });
     }
 
@@ -322,22 +325,36 @@ Clean crisp edges. No artifacts or halos. No other garment visible.
 }
 
 /**
- * Floute le visage du mannequin sur une photo de référence de pose, appelé à
- * l'upload (voir app/api/admin/poses/route.ts). Constaté par test isolé
- * (personne + pose, sans vêtement, plusieurs essais) : quand le mannequin de
- * la photo de pose a un visage net et bien visible, ce visage "fuite" dans le
- * résultat et prend le dessus sur la vraie référence utilisateur, quel que
- * soit le prompt. Anonymiser le mannequin à la source règle le problème sans
- * devoir chercher des photos stock "sans visage".
+ * Neutralise le mannequin d'une photo de référence de pose (visage ET
+ * vêtements), appelé à l'upload (voir app/api/admin/poses/route.ts).
+ *
+ * Le floutage du visage seul a d'abord réglé la fuite d'identité : constaté
+ * par test isolé (personne + pose, sans vêtement, plusieurs essais), un
+ * visage net et bien visible sur la photo de pose "fuite" dans le résultat et
+ * prend le dessus sur la vraie référence utilisateur, quel que soit le
+ * prompt.
+ *
+ * Même constat ensuite sur les VÊTEMENTS du mannequin stock : un blazer bien
+ * visible sur une photo de pose "mi-corps" s'est mélangé à la chemise réelle
+ * de l'utilisateur dans le résultat, et une paire de chaussures visible sur
+ * une photo de pose "gros plan" a pris le dessus sur le produit shoes en
+ * cours d'essayage — alors que le prompt dit explicitement d'ignorer les
+ * vêtements de cette photo. On aplatit donc aussi leur couleur/texture ici,
+ * en gardant la silhouette/coupe pour ne pas perdre les repères de pose (bras
+ * dans une manche, pied dans une chaussure, etc.).
  */
-export async function obscureFaceInPoseReference(image: ImagePart): Promise<GeneratedImageResult> {
+export async function neutralizePoseReference(image: ImagePart): Promise<GeneratedImageResult> {
   const prompt = `
 Edit this photo: heavily blur ONLY the face of the person shown, so their
 identity is not recognizable — like a strong gaussian blur applied just to
 the face area.
-Preserve everything else EXACTLY unchanged: body pose, body position,
-clothing, hair, environment, background, lighting, framing and depth of
-field. Do not blur or alter anything other than the face.
+Also replace all of their clothing with a plain, flat, mid-gray outfit: no
+color, no pattern, no texture, no logo, no distinguishing design — but keep
+the exact same clothing silhouette, cut and fit (same sleeve length, same
+shoe shape, etc.) so the body pose stays exactly as readable as before.
+Preserve everything else EXACTLY unchanged: body pose, body position, hair,
+environment, background, lighting, framing and depth of field. Do not alter
+anything other than the face and the clothing's color/texture/pattern.
   `.trim();
 
   return generateImage({ images: [image], prompt });

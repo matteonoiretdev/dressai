@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ANGLES, ANGLE_LABELS, ENVIRONMENTS } from "@/lib/constants/poses";
-import { describePoseReference, obscureFaceInPoseReference } from "@/lib/gemini";
+import { describePoseReference, neutralizePoseReference } from "@/lib/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { extensionForMimeType, fileToBase64 } from "@/lib/utils/image";
@@ -104,24 +104,25 @@ export async function POST(request: Request) {
     for (const { angle, file } of files) {
       const original = await fileToBase64(file);
 
-      // Description texte de la pose + floutage du visage du mannequin, tous
-      // deux calculés sur la photo ORIGINALE (avant floutage, pour que la
-      // description reste précise). Best-effort : si Gemini échoue sur l'un
-      // ou l'autre, on retombe sur la photo brute plutôt que de bloquer
-      // l'upload — voir lib/gemini.ts pour le pourquoi du floutage (le
-      // visage du mannequin stock "fuite" sinon dans les générations).
-      const [poseDescription, blurred] = await Promise.all([
+      // Description texte de la pose + neutralisation du mannequin (visage +
+      // vêtements), tous deux calculés sur la photo ORIGINALE (avant
+      // neutralisation, pour que la description reste précise). Best-effort :
+      // si Gemini échoue sur l'un ou l'autre, on retombe sur la photo brute
+      // plutôt que de bloquer l'upload — voir lib/gemini.ts pour le pourquoi
+      // (le visage ET les vêtements du mannequin stock "fuitent" sinon dans
+      // les générations).
+      const [poseDescription, neutralized] = await Promise.all([
         describePoseReference(original).catch((error) => {
           console.error("[api/admin/poses] describePoseReference a échoué", error);
           return null;
         }),
-        obscureFaceInPoseReference(original).catch((error) => {
-          console.error("[api/admin/poses] obscureFaceInPoseReference a échoué", error);
+        neutralizePoseReference(original).catch((error) => {
+          console.error("[api/admin/poses] neutralizePoseReference a échoué", error);
           return null;
         }),
       ]);
 
-      const imageToStore = blurred?.image ?? original;
+      const imageToStore = neutralized?.image ?? original;
       const ext = extensionForMimeType(imageToStore.mimeType);
       const path = `${category}/${environment}/${angle}.${ext}`;
 
