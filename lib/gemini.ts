@@ -198,8 +198,10 @@ export async function generateTryOnImage(
           "preserving the exact colorway, silhouette, cut and material, at its true-to-life " +
           "size and proportions relative to the body — never stretch, elongate, shrink or " +
           "enlarge it to fill the frame, however close or cropped the shot is. This image is " +
-          "the single source of truth for its appearance — never invent a different color, " +
-          "pattern, logo or design for it.",
+          "the single source of truth for its appearance — copy its print, pattern, embroidery " +
+          "and logo exactly as shown, pixel for pixel where possible. Never add, remove, " +
+          "resize or reposition any decorative detail, and never invent a different color, " +
+          "pattern, logo or design for it, even if a variation would look equally plausible.",
       });
     } else if (ref.role === "garmentCloseup") {
       parts.push({
@@ -214,10 +216,12 @@ export async function generateTryOnImage(
       poseDescription = ref.detail;
       parts.push({
         text:
-          `Using Reference Image ${index} ("the style"): replicate exactly this photo's ` +
-          "atmosphere, lighting, background and depth of field. The person shown in this " +
-          "photo is not real and is unrelated to this generation — never use their face, " +
-          "body or any of their clothing; it must not influence the outfit in any way.",
+          `Using Reference Image ${index} ("the style"): replicate exactly this photo's pose, ` +
+          "atmosphere, lighting, time of day, background and depth of field — do not substitute " +
+          "a different but similar-looking setting or moment, even if it would look equally " +
+          "plausible. The person shown in this photo is not real and is unrelated to this " +
+          "generation — never use their face, body or any of their clothing; it must not " +
+          "influence the outfit in any way.",
       });
     }
 
