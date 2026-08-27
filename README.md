@@ -3,7 +3,7 @@
 Application web permettant à un utilisateur de visualiser des vêtements e-commerce
 portés par lui-même — avec son propre visage, sa propre morphologie, et des vêtements
 de sa garde-robe personnelle. Les images sont générées par l'API Google Gemini
-(`gemini-2.5-flash-image`, alias "Nano Banana") en qualité photo professionnelle,
+(`gemini-3.1-flash-lite-image`, alias "Nano Banana 2") en qualité photo professionnelle,
 sous 3 angles différents, en suivant des photos de référence de pose réelles.
 
 ## Stack
@@ -63,8 +63,10 @@ la session qui a fait ce changement, donc à exécuter manuellement :
 ### 2. Clé API Gemini
 
 Crée une clé sur [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-et mets-la dans `GEMINI_API_KEY`. Le modèle utilisé est `gemini-2.5-flash-image`
-(configurable via `GEMINI_IMAGE_MODEL` si Google fait évoluer l'identifiant).
+et mets-la dans `GEMINI_API_KEY`. Le modèle utilisé est `gemini-3.1-flash-lite-image`
+("Nano Banana 2" — bien meilleure préservation d'identité que la V1 sur ce cas
+d'usage), configurable via `GEMINI_IMAGE_MODEL` si Google fait à nouveau évoluer
+l'identifiant.
 
 ### 3. Inngest
 

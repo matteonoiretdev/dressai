@@ -3,9 +3,11 @@ import { GoogleGenAI, Modality, type Part } from "@google/genai";
 import type { ImagePart } from "@/lib/utils/image";
 import type { WardrobeClassification } from "@/lib/types";
 
-// Modèle de génération d'images "Nano Banana". Configurable via env var au cas
-// où Google fait évoluer l'identifiant (ex: gemini-2.5-flash-image-preview).
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image";
+// Modèle de génération d'images "Nano Banana 2" — bien meilleure préservation
+// d'identité que gemini-2.5-flash-image (Nano Banana 1) sur ce cas d'usage,
+// confirmé par comparaison directe dans AI Studio. Configurable via env var
+// au cas où Google fait à nouveau évoluer l'identifiant.
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL ?? "gemini-3.1-flash-lite-image";
 // gemini-2.5-flash n'est plus accessible aux nouvelles clés API ("This model
 // ... is no longer available to new users") — Google recommande
 // gemini-3.6-flash comme remplacement direct. Reste configurable via env var
