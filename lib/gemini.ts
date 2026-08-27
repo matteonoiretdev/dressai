@@ -148,9 +148,18 @@ export async function generateImage(params: {
  * partir des MÊMES person/garment/pairedGarment + SA PROPRE pose_reference —
  * volontairement sans réutiliser l'image générée au tour précédent (voir
  * lib/inngest/functions/generate-try-on.ts).
+ *
+ * Exception : le gros plan est généré en premier, puis réutilisé comme
+ * référence "garmentCloseup" pour les plans plus larges. Constaté sur un cas
+ * réel : à petite échelle (plein pied, mi-corps), le produit occupe trop peu
+ * de pixels et le modèle a tendance à approximer ses détails fins (couleurs,
+ * motifs, logo) — alors qu'il les rend fidèlement en gros plan, où le produit
+ * occupe une grande partie du cadre. Donner ce gros plan déjà réussi comme
+ * référence de détail (pas de pose : uniquement l'apparence du produit) aux
+ * plans larges aide le modèle à garder la même fidélité même en petit.
  */
 export interface TryOnReferenceImage {
-  role: "person" | "garment" | "pairedGarment" | "poseRef";
+  role: "person" | "garment" | "pairedGarment" | "poseRef" | "garmentCloseup";
   image: ImagePart;
   /**
    * garment/pairedGarment : nom concret de l'article (ex. "denim shorts",
@@ -187,6 +196,15 @@ export async function generateTryOnImage(
         text:
           `Using Reference Image ${index} ("${name}"): the person must wear exactly this, ` +
           "preserving the exact colorway, silhouette, cut and material.",
+      });
+    } else if (ref.role === "garmentCloseup") {
+      parts.push({
+        text:
+          `Using Reference Image ${index} ("product detail"): a close-up of the exact same ` +
+          "product(s), already correctly rendered. Even though the product appears smaller and " +
+          "farther away in this new photo, render its exact colors, pattern, logo and material " +
+          "with this same level of detail and accuracy — do not simplify or generalize it just " +
+          "because it is farther from the camera.",
       });
     } else {
       poseDescription = ref.detail;

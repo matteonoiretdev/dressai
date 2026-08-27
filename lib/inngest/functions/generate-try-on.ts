@@ -7,7 +7,7 @@ import { resolveAssetUrl, uploadToGeneratedImages } from "@/lib/supabase/storage
 import { extensionForMimeType, fetchImageAsBase64 } from "@/lib/utils/image";
 import type { PoseAngle } from "@/lib/types";
 
-const ANGLES: PoseAngle[] = ["full_body", "mid_shot", "close_up"];
+const ORDER_INDEX: Record<PoseAngle, number> = { full_body: 0, mid_shot: 1, close_up: 2 };
 
 interface PoseSubRef {
   url: string;
@@ -56,15 +56,56 @@ async function loadBaseReferences(context: Context): Promise<TryOnReferenceImage
   return references;
 }
 
+async function generateAngle(
+  supabase: ReturnType<typeof createServiceClient>,
+  sessionId: string,
+  context: Context,
+  angle: PoseAngle,
+  extraRefs: TryOnReferenceImage[] = []
+): Promise<{ url: string }> {
+  const subRef = context.subRefs[angle];
+  const [base, poseRefImage] = await Promise.all([
+    loadBaseReferences(context),
+    fetchImageAsBase64(subRef.url),
+  ]);
+
+  const result = await generateTryOnImage([
+    ...base,
+    ...extraRefs,
+    { role: "poseRef", image: poseRefImage, detail: subRef.description ?? undefined },
+  ]);
+
+  const path = `${sessionId}/${angle}.${extensionForMimeType(result.image.mimeType)}`;
+  const url = await uploadToGeneratedImages(supabase, path, result.image);
+
+  const { error } = await supabase.from("generated_images").insert({
+    session_id: sessionId,
+    image_url: url,
+    angle,
+    order_index: ORDER_INDEX[angle],
+  });
+  if (error) throw error;
+
+  return { url };
+}
+
 /**
  * Job de génération d'un try-on : 3 tours Gemini (plein pied, mi-corps, gros plan).
  *
  * Chaque tour est un step.run indépendant, généré à partir des MÊMES
  * person/garment/pairedGarment + SA PROPRE référence de pose pour cet angle —
- * volontairement sans réutiliser l'image générée au tour précédent (voir le
- * commentaire au-dessus de TRY_ON_REFERENCE_LABELS dans lib/gemini.ts pour le
- * pourquoi : chaîner les tours créait un conflit entre deux sources de pose
+ * volontairement sans réutiliser l'image générée au tour précédent pour la
+ * POSE (voir le commentaire au-dessus de TRY_ON_REFERENCE_LABELS dans
+ * lib/gemini.ts : chaîner la pose créait un conflit entre deux sources
  * photoréalistes que le modèle réconciliait mal).
+ *
+ * Exception volontaire : le GROS PLAN est généré en premier, puis réutilisé
+ * comme référence de détail produit ("garmentCloseup", pas de pose) pour les
+ * deux plans plus larges. Constaté sur un cas réel : à petite échelle (plein
+ * pied, mi-corps), un petit produit (ex. une paire de chaussures) occupe trop
+ * peu de pixels et le modèle en approxime les détails fins — alors qu'il les
+ * rend fidèlement en gros plan. Lui donner ce gros plan déjà réussi comme
+ * référence supplémentaire aide à garder la même fidélité même en petit.
  */
 export const generateTryOn = inngest.createFunction(
   {
@@ -142,7 +183,7 @@ export const generateTryOn = inngest.createFunction(
         subRefs.map((s) => [s.angle, { url: s.image_url, description: s.pose_description }])
       ) as Record<PoseAngle, PoseSubRef>;
 
-      for (const angle of ANGLES) {
+      for (const angle of Object.keys(ORDER_INDEX) as PoseAngle[]) {
         if (!subRefByAngle[angle]) {
           throw new NonRetriableError(`Sous-référence de pose manquante pour l'angle "${angle}".`);
         }
@@ -168,31 +209,16 @@ export const generateTryOn = inngest.createFunction(
       };
     });
 
-    for (const [index, angle] of ANGLES.entries()) {
+    const closeUp = await step.run("generate-close_up", () =>
+      generateAngle(supabase, sessionId, context, "close_up")
+    );
+
+    for (const angle of ["full_body", "mid_shot"] as PoseAngle[]) {
       await step.run(`generate-${angle}`, async () => {
-        const subRef = context.subRefs[angle];
-        const [base, poseRefImage] = await Promise.all([
-          loadBaseReferences(context),
-          fetchImageAsBase64(subRef.url),
+        const closeUpImage = await fetchImageAsBase64(closeUp.url);
+        return generateAngle(supabase, sessionId, context, angle, [
+          { role: "garmentCloseup", image: closeUpImage },
         ]);
-
-        const result = await generateTryOnImage([
-          ...base,
-          { role: "poseRef", image: poseRefImage, detail: subRef.description ?? undefined },
-        ]);
-
-        const path = `${sessionId}/${angle}.${extensionForMimeType(result.image.mimeType)}`;
-        const url = await uploadToGeneratedImages(supabase, path, result.image);
-
-        const { error } = await supabase.from("generated_images").insert({
-          session_id: sessionId,
-          image_url: url,
-          angle,
-          order_index: index,
-        });
-        if (error) throw error;
-
-        return { url };
       });
     }
 
