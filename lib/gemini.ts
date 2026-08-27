@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, type Part } from "@google/genai";
+import { GoogleGenAI, Modality, ThinkingLevel, type Part } from "@google/genai";
 
 import type { ImagePart } from "@/lib/utils/image";
 import type { WardrobeClassification } from "@/lib/types";
@@ -250,6 +250,11 @@ export async function generateTryOnImage(
       // Température basse : privilégie la fidélité aux références (identité,
       // produit) plutôt que la créativité.
       temperature: 0.3,
+      // Thinking level élevé : testé par l'utilisateur dans AI Studio sur ce
+      // même prompt, donne de meilleurs résultats (plus de raisonnement avant
+      // de générer l'image, donc plus fidèle aux références) qu'en laissant
+      // le niveau par défaut.
+      thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
     },
   });
 
