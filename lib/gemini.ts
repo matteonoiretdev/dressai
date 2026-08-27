@@ -132,139 +132,86 @@ export async function generateImage(params: {
 }
 
 /**
- * Rôles de référence pour la génération try-on. Chaque image envoyée à Gemini
- * est précédée d'un label + une instruction dédiée plutôt que désignée par sa
- * position ("image 1", "image 2"...) — plus robuste quand le nombre d'images
- * varie (pas de pairing garde-robe), et ça évite que le modèle confonde le
- * rôle d'une image.
+ * Génération try-on — prompt court et concret façon "Reference Image N (nom) :
+ * instruction", calqué sur un prompt manuel testé par l'utilisateur dans AI
+ * Studio qui donnait de bien meilleurs résultats que notre version précédente
+ * (verbeuse, très répétitive sur les interdictions "do not..."). Chaque image
+ * a UNE instruction courte, positive et concrète ; la pose est donnée comme un
+ * bloc de texte autonome (pas attachée à l'image de style) ; une seule phrase
+ * de génération à la fin relie le tout — pas de répétition de "the most
+ * important constraint" ni de longues listes de négations, qui semblent
+ * nuire plus qu'aider sur ce modèle.
  *
  * Chaque tour (plein pied / mi-corps / gros plan) est généré indépendamment à
  * partir des MÊMES person/garment/pairedGarment + SA PROPRE pose_reference —
- * volontairement sans réutiliser l'image générée au tour précédent : la
- * chaîner créait un conflit entre deux sources de pose photoréalistes
- * (l'ancienne image générée + la nouvelle référence de pose) que le modèle
- * réconciliait mal, d'où des tours identiques entre eux ou une tenue qui
- * dérivait vers celle du mannequin stock plutôt que celle du produit.
- *
- * Point critique : les photos de référence de pose sont des photos stock
- * photoréalistes montrant un mannequin habillé au complet (veste, jean,
- * sneakers...), pas un simple squelette de pose neutre. En pratique, une
- * simple mention "ignore ses vêtements" ne suffit pas à empêcher Gemini de
- * reprendre quasiment tel quel l'outfit (voire le visage) de cette photo —
- * d'où le double renforcement ci-dessous : instruction négative répétée sur
- * POSE_REF lui-même, ET rappel explicite + contrasté dans les instructions
- * de clôture (buildTryOnGenerationInstructions), qui sont la dernière chose
- * lue par le modèle avant de générer.
+ * volontairement sans réutiliser l'image générée au tour précédent (voir
+ * lib/inngest/functions/generate-try-on.ts).
  */
-const TRY_ON_REFERENCE_LABELS = {
-  person: {
-    label: "PERSON REFERENCE — MOST IMPORTANT CONSTRAINT",
-    instructions:
-      "This is the exact, real individual to render in the output — not a generic or " +
-      "idealized fashion model. Matching this specific person's identity is the single " +
-      "most important constraint of this entire request, more important than pose or " +
-      "environment accuracy. Preserve their exact face shape, nose shape, jaw shape, eye " +
-      "shape and spacing, eyebrows, lips, skin tone and texture, hairstyle, hair color, " +
-      "height and body proportions. Do not beautify, do not idealize, do not change " +
-      "ethnicity, do not blend with a different face, do not alter facial structure in any " +
-      "way. The output must be immediately recognizable as this same individual. This is " +
-      "the ONLY source for the output's face and body — no other image in this request.",
-    detailPrefix: "",
-  },
-  garment: {
-    label: "GARMENT REFERENCE — MUST WEAR EXACTLY THIS",
-    instructions:
-      "This is the exact garment/product the person must be wearing in the output. " +
-      "Reproduce its silhouette, cut, color, pattern, texture and material precisely. " +
-      "Do not substitute, simplify or reinterpret it as a different garment. This is the " +
-      "ONLY source for the output's main garment — no other image in this request.",
-    detailPrefix: "Specifically, this item is:",
-  },
-  pairedGarment: {
-    label: "PAIRED GARMENT REFERENCE — MUST WEAR EXACTLY THIS TOO",
-    instructions:
-      "An additional garment from the person's own wardrobe, worn together with the " +
-      "garment above. Reproduce its silhouette, cut, color, pattern, texture and material " +
-      "precisely, exactly as shown — do not substitute or reinterpret it.",
-    detailPrefix: "Specifically, this item is:",
-  },
-  poseRef: {
-    label: "ENVIRONMENT, LIGHTING & ATMOSPHERE REFERENCE — STOCK PHOTO, DO NOT COPY ITS PERSON",
-    instructions:
-      "This stock photo shows a DIFFERENT, unrelated person wearing DIFFERENT clothes. Use " +
-      "it ONLY for the background, environment, lighting mood and depth-of-field/bokeh " +
-      "style. Do NOT copy this image's person, face, body type, body pose, or ANY item of " +
-      "clothing (jacket, shirt, pants, shoes) — none of it must appear in the output. The " +
-      "exact body pose is given separately below as a text description and takes priority " +
-      "over whatever pose this image shows.",
-    detailPrefix: "POSE (strictly follow this, not the pose shown in the reference photo):",
-  },
-} as const;
-
-function buildTryOnGenerationInstructions(
-  references: TryOnReferenceImage[]
-): string {
-  const garment = references.find((r) => r.role === "garment");
-  const pairedGarment = references.find((r) => r.role === "pairedGarment");
-  const poseRef = references.find((r) => r.role === "poseRef");
-
-  const outfitSentence = pairedGarment
-    ? `wearing ${garment?.detail ?? "the exact garment"} from GARMENT REFERENCE together with ` +
-      `${pairedGarment.detail ?? "the exact paired item"} from PAIRED GARMENT REFERENCE`
-    : `wearing ${garment?.detail ?? "the exact garment"} from GARMENT REFERENCE`;
-
-  const poseSentence = poseRef?.detail
-    ? `POSE (strictly follow): ${poseRef.detail}`
-    : "Pose comes from the ENVIRONMENT REFERENCE image.";
-
-  return `
-Generate a single photorealistic fashion editorial photograph of the exact person from
-PERSON REFERENCE (see above — this is the most important constraint), ${outfitSentence}.
-${poseSentence}
-Background, environment, lighting and atmosphere: replicate the ENVIRONMENT REFERENCE photo's
-mood exactly (urban background, lighting, depth of field) — but not its person, pose or
-clothing, which must be completely absent from the output.
-Sharp, accurate garment rendering. Photorealistic, professional editorial fashion photography
-quality. No face alterations, no generic/idealized face. No text, no watermark, no collage —
-a single clean photograph.
-  `.trim();
-}
-
 export interface TryOnReferenceImage {
-  role: keyof typeof TRY_ON_REFERENCE_LABELS;
+  role: "person" | "garment" | "pairedGarment" | "poseRef";
   image: ImagePart;
   /**
-   * Détail spécifique à cette instance, ajouté après l'instruction de base du
-   * rôle. Pour garment/pairedGarment : nomme concrètement l'article (ex. "a
-   * pair of sneakers (\"Nike Vaporwaffle\")") au lieu du terme générique
-   * "the garment" — rend le prompt spécifique à la situation plutôt que
-   * générique. Pour poseRef : description textuelle explicite de la pose
-   * (voir describePoseReference ci-dessous), qui guide bien plus fiablement
-   * le modèle que l'image seule.
+   * garment/pairedGarment : nom concret de l'article (ex. "denim shorts",
+   * "Nike Vaporwaffle sneakers") — remplace le nom générique dans le prompt.
+   * poseRef : description textuelle de la pose (voir describePoseReference
+   * ci-dessous), insérée comme bloc "POSE (strictly follow):" autonome.
    */
   detail?: string;
 }
 
-/**
- * Génération try-on avec références labellisées par rôle (voir
- * TRY_ON_REFERENCE_LABELS ci-dessus). Utilisée pour les 3 angles — l'identité,
- * le produit et l'éventuel pairing garde-robe sont réinjectés à CHAQUE tour
- * (pas seulement le premier) pour éviter la dérive d'identité/tenue observée
- * en ne les fournissant qu'au premier tour. Chaque tour est indépendant :
- * pas d'image du tour précédent parmi les références (voir le commentaire
- * au-dessus de TRY_ON_REFERENCE_LABELS pour le pourquoi).
- */
 export async function generateTryOnImage(
   references: TryOnReferenceImage[]
 ): Promise<GeneratedImageResult> {
   const ai = getClient();
 
-  const parts: Part[] = references.flatMap(({ role, image, detail }) => {
-    const { label, instructions, detailPrefix } = TRY_ON_REFERENCE_LABELS[role];
-    const text = detail ? `${instructions}\n${detailPrefix} ${detail}` : instructions;
-    return [{ text: `--- ${label} ---\n${text}` }, toPart(image)];
+  const parts: Part[] = [];
+  const garmentNames: string[] = [];
+  let poseDescription: string | undefined;
+
+  references.forEach((ref, i) => {
+    const index = i + 1;
+
+    if (ref.role === "person") {
+      parts.push({
+        text:
+          `Using Reference Image ${index} ("the person"): preserve exactly this person's ` +
+          "face, hair, skin tone, height and body morphology in the output.",
+      });
+    } else if (ref.role === "garment" || ref.role === "pairedGarment") {
+      const name = ref.detail ?? "this item";
+      garmentNames.push(name);
+      parts.push({
+        text:
+          `Using Reference Image ${index} ("${name}"): the person must wear exactly this, ` +
+          "preserving the exact colorway, silhouette, cut and material.",
+      });
+    } else {
+      poseDescription = ref.detail;
+      parts.push({
+        text:
+          `Using Reference Image ${index} ("the style"): replicate exactly this photo's ` +
+          "atmosphere, lighting, background and depth of field. Do not use this photo's own " +
+          "person or clothing.",
+      });
+    }
+
+    parts.push(toPart(ref.image));
   });
-  parts.push({ text: buildTryOnGenerationInstructions(references) });
+
+  if (poseDescription) {
+    parts.push({ text: `POSE (strictly follow): ${poseDescription}` });
+  }
+
+  const outfitPhrase = garmentNames.length > 0 ? ` wearing ${garmentNames.join(" and ")}` : "";
+
+  parts.push({
+    text:
+      `Generate a fashion editorial photo of the person from Reference Image 1 in this exact ` +
+      `pose${outfitPhrase}, matching the atmosphere, lighting and background from the style ` +
+      "reference. Preserve the person's exact face and identity — this must be recognizably " +
+      "the same person, not a generic model. Professional fashion photography, photorealistic, " +
+      "high-end lookbook quality, sharp garment details.",
+  });
 
   const response = await ai.models.generateContent({
     model: IMAGE_MODEL,
@@ -272,9 +219,7 @@ export async function generateTryOnImage(
     config: {
       responseModalities: [Modality.TEXT, Modality.IMAGE],
       // Température basse : privilégie la fidélité aux références (identité,
-      // produit) plutôt que la créativité — la valeur par défaut plus élevée
-      // laissait trop de marge au modèle pour dériver vers un visage
-      // générique de mannequin plutôt que la vraie personne.
+      // produit) plutôt que la créativité.
       temperature: 0.3,
     },
   });
