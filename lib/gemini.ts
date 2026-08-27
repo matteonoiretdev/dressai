@@ -195,8 +195,10 @@ export async function generateTryOnImage(
       parts.push({
         text:
           `Using Reference Image ${index} ("${name}"): the person must wear exactly this, ` +
-          "preserving the exact colorway, silhouette, cut and material. This image is the " +
-          "single source of truth for its appearance — never invent a different color, " +
+          "preserving the exact colorway, silhouette, cut and material, at its true-to-life " +
+          "size and proportions relative to the body — never stretch, elongate, shrink or " +
+          "enlarge it to fill the frame, however close or cropped the shot is. This image is " +
+          "the single source of truth for its appearance — never invent a different color, " +
           "pattern, logo or design for it.",
       });
     } else if (ref.role === "garmentCloseup") {
@@ -233,8 +235,11 @@ export async function generateTryOnImage(
       `Generate a fashion editorial photo using the exact same face as Reference Image 1 in ` +
       `this exact pose${outfitPhrase}, matching the atmosphere, lighting and background from ` +
       "the style reference. The face must be the real face from Reference Image 1, unchanged " +
-      "— not a new face, not a similar-looking model. Professional fashion photography, " +
-      "photorealistic, high-end lookbook quality, sharp garment details.",
+      "— not a new face, not a similar-looking model. Keep realistic human anatomy and " +
+      "realistic, true-to-life garment proportions throughout — a close or cropped framing " +
+      "must never be used as a reason to lengthen, enlarge or otherwise distort a garment or " +
+      "shoe beyond its real-world size. Professional fashion photography, photorealistic, " +
+      "high-end lookbook quality, sharp garment details.",
   });
 
   const response = await ai.models.generateContent({
