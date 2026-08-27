@@ -73,13 +73,8 @@ sentences), in this style: "seated on concrete steps, body turned 3/4 toward
 camera, left elbow resting on left knee, right arm hanging loosely, legs bent
 and slightly apart, looking directly at camera with a relaxed confident
 expression. Both feet flat on a lower step."
-Always state explicitly which body parts are visible in frame and which are
-cropped out by the framing — e.g. "framed from mid-thigh down, torso, arms
-and head not visible" or "framed from the waist up, legs and feet not
-visible". This is essential: the exact same crop must be reproduced.
 Do NOT describe their face, hair, skin tone, body type, or ANY clothing —
-describe only the pose, camera framing/distance (including what is cropped
-out) and background/environment.
+describe only the pose, camera framing/distance and background/environment.
 Return plain text only, no markdown, no preamble, no quotes.
   `.trim(),
 };
@@ -199,14 +194,12 @@ export async function generateTryOnImage(
       garmentNames.push(name);
       parts.push({
         text:
-          `Using Reference Image ${index} ("${name}"): the person must wear exactly this ` +
-          "wherever it falls within the photo's framing, preserving the exact colorway, " +
-          "silhouette, cut and material, at its true-to-life size and proportions relative to " +
-          "the body — never stretch, elongate, shrink or enlarge it to fill the frame, however " +
-          "close or cropped the shot is. This image is the single source of truth for its " +
-          "appearance — never invent a different color, pattern, logo or design for it. If the " +
-          "framing (see POSE below) crops this item out of view entirely, do not force it into " +
-          "the shot.",
+          `Using Reference Image ${index} ("${name}"): the person must wear exactly this, ` +
+          "preserving the exact colorway, silhouette, cut and material, at its true-to-life " +
+          "size and proportions relative to the body — never stretch, elongate, shrink or " +
+          "enlarge it to fill the frame, however close or cropped the shot is. This image is " +
+          "the single source of truth for its appearance — never invent a different color, " +
+          "pattern, logo or design for it.",
       });
     } else if (ref.role === "garmentCloseup") {
       parts.push({
@@ -232,15 +225,7 @@ export async function generateTryOnImage(
   });
 
   if (poseDescription) {
-    parts.push({
-      text:
-        `POSE (strictly follow): ${poseDescription}\n` +
-        "Reproduce this exact framing/crop, including which body parts it excludes. If it " +
-        "crops out a body part (e.g. the torso, arms or head), do not render or invent any " +
-        "garment that would only be visible there — a garment that falls entirely outside " +
-        "this framing simply should not appear in the photo, exactly like a real photograph " +
-        "cropped that way.",
-    });
+    parts.push({ text: `POSE (strictly follow): ${poseDescription}` });
   }
 
   const outfitPhrase = garmentNames.length > 0 ? ` wearing ${garmentNames.join(" and ")}` : "";
