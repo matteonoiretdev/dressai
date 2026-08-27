@@ -72,7 +72,9 @@ export function ProductSubmit() {
           productImageUrl: extracted.image_url_clean,
           productCategory: extracted.category,
           productColor: extracted.color ?? undefined,
-          wardrobeItemId: wardrobeItemId ?? undefined,
+          // null = "Aucun" choisi explicitement (respecté), pas coercé en
+          // undefined (qui déclencherait une auto-sélection serveur non voulue).
+          wardrobeItemId,
         }),
       });
       const data = await parseJsonResponse<{ sessionId: string }>(response);

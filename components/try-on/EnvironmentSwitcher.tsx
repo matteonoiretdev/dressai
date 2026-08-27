@@ -32,7 +32,9 @@ export function EnvironmentSwitcher({
           productImageUrl: session.product_image_url,
           productCategory: session.product_category,
           productColor: session.product_color ?? undefined,
-          wardrobeItemId: session.wardrobe_item_id ?? undefined,
+          // Reprend le pairing tel quel (y compris explicitement "Aucun" = null),
+          // pas coercé en undefined pour ne pas déclencher une auto-sélection.
+          wardrobeItemId: session.wardrobe_item_id,
           poseReferenceId,
         }),
       });

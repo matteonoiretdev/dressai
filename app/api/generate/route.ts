@@ -14,7 +14,9 @@ const bodySchema = z.object({
   productImageUrl: z.string().min(1),
   productCategory: z.enum(CATEGORIES),
   productColor: z.string().optional(),
-  wardrobeItemId: z.string().uuid().optional(),
+  // undefined = pas fourni par le client -> auto-sélection ci-dessous.
+  // null = l'utilisateur a explicitement choisi "Aucun" pairing -> respecté tel quel.
+  wardrobeItemId: z.string().uuid().nullable().optional(),
   poseReferenceId: z.string().uuid().optional(),
 });
 
@@ -53,8 +55,10 @@ export async function POST(request: Request) {
       );
     }
 
-    let wardrobeItemId = body.wardrobeItemId ?? null;
-    if (!wardrobeItemId) {
+    // undefined (champ absent) : l'utilisateur n'a rien choisi -> auto-sélection.
+    // null (choix explicite "Aucun") : respecté tel quel, pas d'auto-sélection.
+    let wardrobeItemId = body.wardrobeItemId;
+    if (wardrobeItemId === undefined) {
       const pairing = await selectPairingItem(
         supabase,
         user.id,
